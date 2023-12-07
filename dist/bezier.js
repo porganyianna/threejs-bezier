@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as YUKA from 'yuka';
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
@@ -29,6 +30,12 @@ let transformControl;
 const ARC_SEGMENTS = 200;
 
 let curveLine, bezierCurve;
+
+const vehicle = new YUKA.Vehicle();
+const path = new YUKA.Path();
+
+let followPathBehavior, entityManager;
+const time = new YUKA.Time();
 
 const params = {
 	addPoint: addPoint,
@@ -91,7 +98,7 @@ function init() {
 	gui.add( params, 'animate' );
 	gui.open();
 
-	// Controls
+
 	const controls = new OrbitControls( camera, renderer.domElement );
 	controls.damping = 0.2;
 	controls.addEventListener( 'change', render );
@@ -155,12 +162,44 @@ function init() {
 	    new THREE.Vector3( 100, 0, 100 )
 	] );
 
-
 	addControlLines( positions );
 
+
+
+	const vehicleGeometry = new THREE.ConeGeometry(7, 20, 8)
+	// const vehicleGeometry = new THREE.ConeBufferGeometry(0.1, 0.5, 8);
+	// vehicleGeometry.rotateX(Math.PI * 0.5);
+	const vehicleMaterial = new THREE.MeshNormalMaterial();
+	const vehicleMesh = new THREE.Mesh(vehicleGeometry, vehicleMaterial);
+	vehicleMesh.matrixAutoUpdate = false;
+	scene.add(vehicleMesh);
+
+	path.add(new YUKA.Vector3(wholeCurvePositions[0][0].x, wholeCurvePositions[0][0].y, wholeCurvePositions[0][0].z));
+
+	points.forEach(point => {
+		path.add(new YUKA.Vector3(point.x, point.y, point.z));
+	});
+
+	vehicle.position.copy(path.current());
+	vehicle.maxSpeed = 10;
+
+	followPathBehavior = new YUKA.FollowPathBehavior(path, 0.5);
+	vehicle.steering.add(followPathBehavior);
+	
+	entityManager = new YUKA.EntityManager();
+	entityManager.add(vehicle);
+
+	vehicle.setRenderComponent(vehicleMesh, sync);
+	console.log(vehicle.position);
+	
 	render();
 
 }
+
+function sync(entity, renderComponent) {
+    renderComponent.matrix.copy(entity.worldMatrix);
+}
+
 
 function addControlLines( position ) {
 
@@ -190,7 +229,6 @@ function addControlLines( position ) {
 	scene.add( secondControlLine );
 	controlLines.push( secondControlLine );
 
-	console.log(controlLines);
 
 }
 
@@ -220,12 +258,17 @@ function addSplineObject( position ) {
 
 }
 
-function addPoint() {
+function addPoint(new_point) {
 
 	splinePointsLength += 3;
 
-	let newPoint = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 600, Math.random() * 800 - 400) ;
-
+	let newPoint;
+	if(new_point !== undefined ) {
+		newPoint = new_point;
+	} else {
+		newPoint = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 600, Math.random() * 800 - 400) ;	
+	}
+	
 	let newCurvePositions = [];
 
 	newCurvePositions.push( wholeCurvePositions[wholeCurvePositions.length-1][3] );
@@ -259,6 +302,11 @@ function addPoint() {
 
 	splines.push(newCurveLine);
 	scene.add(newCurveLine);
+
+	newPoints.forEach(pathPoint => {
+		path.add(new YUKA.Vector3(pathPoint.x, pathPoint.y, pathPoint.z));
+	});
+
 
 	updateSplineOutline();
 
@@ -335,35 +383,28 @@ function updateSplineOutline() {
 				let index = 2*i;
 				let controlPoints = [curvePoints[0], curvePoints[1]];
 				let controlPoints2 = [curvePoints[2], curvePoints[3]];
-				console.log(controlLines);
-				console.log(index);
 				controlLines[index].geometry.setFromPoints( controlPoints );
 				controlLines[index + 1].geometry.setFromPoints( controlPoints2 );
 			}
 			
+
 		}	
 	}
 	
 
 }
 
+
+
+
+
 function animate() {
 
 	requestAnimationFrame( animate );
 
-	// positions.forEach(position => {
-		
+	const delta = time.update().getDelta();
+    entityManager.update(delta);
 
-	// 	let x = 0, y = 0, z = 0; 
-	// 	x += ( Math.random() - 0.5 ) * 10; 
-	// 	// y += ( Math.random() - 0.5 ) * 3; 
-	// 	// z += ( Math.random() - 0.5 ) * 3;
-	// 	position.x += x;
-	// 	position.y += y;
-	// 	position.z += z;
-
-
-	// });
 
 	updateSplineOutline();
 	render();

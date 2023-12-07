@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "gh-pages": "^6.1.0",
-    "three": "^0.157.0"
+    "three": "^0.157.0",
+    "yuka": "^0.7.8"
   },
   "devDependencies": {
     "vite": "^4.4.9"
