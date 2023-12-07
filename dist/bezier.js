@@ -13,6 +13,9 @@ const splineHelperObjects = [];
 let splinePointsLength = 4;
 const positions = [];
 const wholeCurvePositions = [];
+const splines = [];
+const controlLines = [];
+
 const point = new THREE.Vector3();
 
 const raycaster = new THREE.Raycaster();
@@ -28,12 +31,9 @@ const ARC_SEGMENTS = 200;
 let curveLine, bezierCurve;
 
 const params = {
-	uniform: true,
-	tension: 0.5,
-	centripetal: true,
-	chordal: true,
 	addPoint: addPoint,
 	removePoint: removePoint,
+	animate: animate
 };
 
 init();
@@ -86,18 +86,9 @@ function init() {
 
 	const gui = new GUI();
 
-	gui.add( params, 'uniform' ).onChange( render );
-	gui.add( params, 'tension', 0, 1 ).step( 0.01 ).onChange( function ( value ) {
-
-		splines.uniform.tension = value;
-		updateSplineOutline();
-		render();
-
-	} );
-	gui.add( params, 'centripetal' ).onChange( render );
-	gui.add( params, 'chordal' ).onChange( render );
 	gui.add( params, 'addPoint' );
 	gui.add( params, 'removePoint' );
+	gui.add( params, 'animate' );
 	gui.open();
 
 	// Controls
@@ -125,10 +116,6 @@ function init() {
 	document.addEventListener( 'pointermove', onPointerMove );
 	window.addEventListener( 'resize', onWindowResize );
 
-	/*******
-	 * Curves
-	 *********/
-
 	for ( let i = 0; i < splinePointsLength; i ++ ) {
 
 		addSplineObject( positions[ i ] );
@@ -145,37 +132,6 @@ function init() {
 
 	wholeCurvePositions.push(positions);
 
-	// const geometry = new THREE.BufferGeometry();
-	// geometry.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array( ARC_SEGMENTS * 3 ), 3 ) );
-
-	// let curve = new THREE.CatmullRomCurve3( positions );
-	// curve.curveType = 'catmullrom';
-	// curve.mesh = new THREE.Line( geometry.clone(), new THREE.LineBasicMaterial( {
-	// 	color: 0xff0000,
-	// 	opacity: 0.35
-	// } ) );
-	// curve.mesh.castShadow = true;
-	// splines.uniform = curve;
-
-	// curve = new THREE.CatmullRomCurve3( positions );
-	// curve.curveType = 'centripetal';
-	// curve.mesh = new THREE.Line( geometry.clone(), new THREE.LineBasicMaterial( {
-	// 	color: 0x00ff00,
-	// 	opacity: 0.35
-	// } ) );
-	// curve.mesh.castShadow = true;
-	// splines.centripetal = curve;
-
-	// curve = new THREE.CatmullRomCurve3( positions );
-	// curve.curveType = 'chordal';
-	// curve.mesh = new THREE.Line( geometry.clone(), new THREE.LineBasicMaterial( {
-	// 	color: 0x0000ff,
-	// 	opacity: 0.35
-	// } ) );
-	// curve.mesh.castShadow = true;
-	// splines.chordal = curve;
-
-
 	let bezierCurve = new THREE.CubicBezierCurve3(
 	    new THREE.Vector3( -100, 0, 40 ),
 	    new THREE.Vector3( -50, 150, -30 ),
@@ -187,18 +143,10 @@ function init() {
 
 	const material = new THREE.LineBasicMaterial( { color: 0xff0000 } );
 
-	// Create the final object to add to the scene
 	curveLine = new THREE.Line( geometry, material );
 
 	scene.add(curveLine);	
-
-
-	// for ( const k in splines ) {
-
-	// 	const spline = splines[ k ];
-	// 	scene.add( spline.mesh );
-
-	// }
+	splines.push(curveLine);
 
 	load( [ 
 		new THREE.Vector3( -100, 0, 40 ),
@@ -207,9 +155,45 @@ function init() {
 	    new THREE.Vector3( 100, 0, 100 )
 	] );
 
+
+	addControlLines( positions );
+
 	render();
 
 }
+
+function addControlLines( position ) {
+
+	const controlLineMaterial = new THREE.LineDashedMaterial( {
+		color: Math.random() * 0xffffff,
+		linewidth: 3,
+		scale: 10,
+		dashSize: 10,
+		gapSize: 10,
+	} );
+
+	let controlLinePoints = [position[0], position[1]];
+	const controlLineGeometry = new THREE.BufferGeometry().setFromPoints( controlLinePoints );
+
+	let firstControlLine = new THREE.Line( controlLineGeometry, controlLineMaterial );
+	firstControlLine.computeLineDistances();
+
+	scene.add( firstControlLine );
+	controlLines.push( firstControlLine );
+
+	controlLinePoints = [position[2], position[3]]
+	const controlLineGeometry2 = new THREE.BufferGeometry().setFromPoints( controlLinePoints );
+
+	let secondControlLine = new THREE.Line( controlLineGeometry2, controlLineMaterial );
+	secondControlLine.computeLineDistances();
+
+	scene.add( secondControlLine );
+	controlLines.push( secondControlLine );
+
+	console.log(controlLines);
+
+}
+
 
 function addSplineObject( position ) {
 
@@ -238,7 +222,7 @@ function addSplineObject( position ) {
 
 function addPoint() {
 
-	splinePointsLength ++;
+	splinePointsLength += 3;
 
 	let newPoint = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 600, Math.random() * 800 - 400) ;
 
@@ -247,7 +231,6 @@ function addPoint() {
 	newCurvePositions.push( wholeCurvePositions[wholeCurvePositions.length-1][3] );
 
 	let vec1 = calculateFirstControlPoint( wholeCurvePositions[wholeCurvePositions.length-1][3], wholeCurvePositions[wholeCurvePositions.length-1][2] );
-	console.log(vec1);
 	newCurvePositions.push( addSplineObject(vec1).position );
 
 	let vec2 = calculateSecondControlPoint(wholeCurvePositions[wholeCurvePositions.length-1][3], wholeCurvePositions[wholeCurvePositions.length-1][2], newPoint)
@@ -256,6 +239,26 @@ function addPoint() {
 	newCurvePositions.push( addSplineObject(newPoint).position );
 
 	wholeCurvePositions.push(newCurvePositions);
+
+
+	addControlLines( newCurvePositions );
+
+
+	let newBezierCurve = new THREE.CubicBezierCurve3(
+		newCurvePositions[0],
+		newCurvePositions[1],
+		newCurvePositions[2],
+		newCurvePositions[3],
+	);
+	const newPoints = newBezierCurve.getPoints( 200 );
+	const newGeometry = new THREE.BufferGeometry().setFromPoints( newPoints );
+
+	const newMaterial = new THREE.LineBasicMaterial( { color: 0xff0000 } );
+
+	let newCurveLine = new THREE.Line( newGeometry, newMaterial );
+
+	splines.push(newCurveLine);
+	scene.add(newCurveLine);
 
 	updateSplineOutline();
 
@@ -280,8 +283,10 @@ function calculateSecondControlPoint(v1, v2, w1) {
 	let y2 = -v2.y - 2*y1;
 	let z2 = -v2.z - 2*z1;
 
-	return new THREE.Vector3(x2, y2, z2);
-} 
+	let point = new THREE.Vector3(x2, y2, z2);
+	point.clamp(new THREE.Vector3(0, 0, 0), new THREE.Vector3(2000, 2000, 2000));
+	return point;
+}
 
 function removePoint() {
 
@@ -292,11 +297,24 @@ function removePoint() {
 	}
 
 	const point = splineHelperObjects.pop();
-	splinePointsLength --;
-	positions.pop();
+	const controlPoint = splineHelperObjects.pop();
+	const controlPoint2 = splineHelperObjects.pop();
+	splinePointsLength -= 3;
+
+	wholeCurvePositions.pop();
+	const curve = splines.pop();
+
+	const firstControlLine = controlLines.pop();
+	const secondControlLine = controlLines.pop();
 
 	if ( transformControl.object === point ) transformControl.detach();
 	scene.remove( point );
+	scene.remove( controlPoint );
+	scene.remove( controlPoint2 );
+	scene.remove( curve );
+	scene.remove( firstControlLine );
+	scene.remove( secondControlLine );
+
 
 	updateSplineOutline();
 
@@ -309,9 +327,20 @@ function updateSplineOutline() {
 	if(wholeCurvePositions.length > 0) {
 		for (let i = 0; i < wholeCurvePositions.length; i++) {
 			let curvePoints = wholeCurvePositions[i];
-			bezierCurve = new THREE.CubicBezierCurve3(curvePoints[0], curvePoints[1], curvePoints[2], curvePoints[3]);
-			const points = bezierCurve.getPoints( 200 );
-			curveLine.geometry.setFromPoints(points);
+			curveLine = new THREE.CubicBezierCurve3(curvePoints[0], curvePoints[1], curvePoints[2], curvePoints[3]);
+			const points = curveLine.getPoints( 200 );
+			splines[i].geometry.setFromPoints(points);
+
+			if( controlLines.length > 0 ) {
+				let index = 2*i;
+				let controlPoints = [curvePoints[0], curvePoints[1]];
+				let controlPoints2 = [curvePoints[2], curvePoints[3]];
+				console.log(controlLines);
+				console.log(index);
+				controlLines[index].geometry.setFromPoints( controlPoints );
+				controlLines[index + 1].geometry.setFromPoints( controlPoints2 );
+			}
+			
 		}	
 	}
 	
@@ -322,20 +351,19 @@ function animate() {
 
 	requestAnimationFrame( animate );
 
-
-	positions.forEach(position => {
+	// positions.forEach(position => {
 		
 
-		let x = 0, y = 0, z = 0; 
-		x += ( Math.random() - 0.5 ) * 10; 
-		// y += ( Math.random() - 0.5 ) * 3; 
-		// z += ( Math.random() - 0.5 ) * 3;
-		position.x += x;
-		position.y += y;
-		position.z += z;
+	// 	let x = 0, y = 0, z = 0; 
+	// 	x += ( Math.random() - 0.5 ) * 10; 
+	// 	// y += ( Math.random() - 0.5 ) * 3; 
+	// 	// z += ( Math.random() - 0.5 ) * 3;
+	// 	position.x += x;
+	// 	position.y += y;
+	// 	position.z += z;
 
 
-	});
+	// });
 
 	updateSplineOutline();
 	render();
@@ -372,7 +400,6 @@ function load( new_positions ) {
 
 function render() {
 
-console.log('render');
 	renderer.render( scene, camera );
 
 }
