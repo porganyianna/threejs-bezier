@@ -1,17 +1,16 @@
 import * as THREE from 'three';
-import * as YUKA from 'yuka';
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-
-
 let container;
 let camera, scene, renderer;
 const splineHelperObjects = [];
 let splinePointsLength = 4;
+
+
 const positions = [];
 const wholeCurvePositions = [];
 const splines = [];
@@ -31,16 +30,13 @@ const ARC_SEGMENTS = 200;
 
 let curveLine, bezierCurve;
 
-const vehicle = new YUKA.Vehicle();
-const path = new YUKA.Path();
-
-let followPathBehavior, entityManager;
-const time = new YUKA.Time();
+let animationSpeed = 1;
 
 const params = {
 	addPoint: addPoint,
 	removePoint: removePoint,
-	animate: animate
+	animate: animate,
+	speed: animationSpeed
 };
 
 init();
@@ -91,12 +87,12 @@ function init() {
 	renderer.shadowMap.enabled = true;
 	container.appendChild( renderer.domElement );
 
-	const gui = new GUI();
+	// var clock = new THREE.Clock( true );
 
-	gui.add( params, 'addPoint' );
-	gui.add( params, 'removePoint' );
-	gui.add( params, 'animate' );
-	gui.open();
+
+	addGui();
+
+	// addControls();
 
 
 	const controls = new OrbitControls( camera, renderer.domElement );
@@ -137,23 +133,11 @@ function init() {
 
 	}
 
+
+	addBezierCurve( positions );
+
 	wholeCurvePositions.push(positions);
 
-	let bezierCurve = new THREE.CubicBezierCurve3(
-	    new THREE.Vector3( -100, 0, 40 ),
-	    new THREE.Vector3( -50, 150, -30 ),
-	    new THREE.Vector3( 200, 150, 50 ),
-	    new THREE.Vector3( 100, 0, 100 )
-	);
-	const points = bezierCurve.getPoints( 200 );
-	const geometry = new THREE.BufferGeometry().setFromPoints( points );
-
-	const material = new THREE.LineBasicMaterial( { color: 0xff0000 } );
-
-	curveLine = new THREE.Line( geometry, material );
-
-	scene.add(curveLine);	
-	splines.push(curveLine);
 
 	load( [ 
 		new THREE.Vector3( -100, 0, 40 ),
@@ -162,42 +146,91 @@ function init() {
 	    new THREE.Vector3( 100, 0, 100 )
 	] );
 
-	addControlLines( positions );
-
-
-
-	const vehicleGeometry = new THREE.ConeGeometry(7, 20, 8)
-	// const vehicleGeometry = new THREE.ConeBufferGeometry(0.1, 0.5, 8);
-	// vehicleGeometry.rotateX(Math.PI * 0.5);
-	const vehicleMaterial = new THREE.MeshNormalMaterial();
-	const vehicleMesh = new THREE.Mesh(vehicleGeometry, vehicleMaterial);
-	vehicleMesh.matrixAutoUpdate = false;
-	scene.add(vehicleMesh);
-
-	path.add(new YUKA.Vector3(wholeCurvePositions[0][0].x, wholeCurvePositions[0][0].y, wholeCurvePositions[0][0].z));
-
-	points.forEach(point => {
-		path.add(new YUKA.Vector3(point.x, point.y, point.z));
-	});
-
-	vehicle.position.copy(path.current());
-	vehicle.maxSpeed = 10;
-
-	followPathBehavior = new YUKA.FollowPathBehavior(path, 0.5);
-	vehicle.steering.add(followPathBehavior);
-	
-	entityManager = new YUKA.EntityManager();
-	entityManager.add(vehicle);
-
-	vehicle.setRenderComponent(vehicleMesh, sync);
-	console.log(vehicle.position);
-	
 	render();
 
 }
 
-function sync(entity, renderComponent) {
-    renderComponent.matrix.copy(entity.worldMatrix);
+function addGui() {
+	const gui = new GUI();
+
+	gui.add( params, 'addPoint' );
+	gui.add( params, 'removePoint' );
+	gui.add( params, 'animate' );
+	gui.add( params, 'speed', 0, 20 ).step( 0.1 ).onChange( function ( value ) {
+		animationSpeed = value;
+		splines.forEach(spline => {
+			spline.userData.velocity1.normalize().multiplyScalar(animationSpeed);
+			spline.userData.velocity2.normalize().multiplyScalar(animationSpeed);
+		});
+	} );
+	gui.open();
+}
+
+function addControls() {
+	const controls = new OrbitControls( camera, renderer.domElement );
+	controls.damping = 0.2;
+	controls.addEventListener( 'change', render );
+
+	transformControl = new TransformControls( camera, renderer.domElement );
+	transformControl.addEventListener( 'change', render );
+	transformControl.addEventListener( 'dragging-changed', function ( event ) {
+
+		controls.enabled = ! event.value;
+
+	} );
+	scene.add( transformControl );
+
+	transformControl.addEventListener( 'objectChange', function () {
+
+		updateSplineOutline();
+
+	} );
+
+	document.addEventListener( 'pointerdown', onPointerDown );
+	document.addEventListener( 'pointerup', onPointerUp );
+	document.addEventListener( 'pointermove', onPointerMove );
+	window.addEventListener( 'resize', onWindowResize );
+}
+
+function addBezierCurve(newCurvePoints) {
+
+	if(newCurvePoints == undefined) {
+		newCurvePoints = [ 
+			new THREE.Vector3( ),
+		    new THREE.Vector3( ),
+		    new THREE.Vector3( ),
+		    new THREE.Vector3( )
+		]
+	}
+	let bezierCurve = new THREE.CubicBezierCurve3(
+		newCurvePoints[0],
+		newCurvePoints[1],
+		newCurvePoints[2],
+		newCurvePoints[3],
+	);
+
+	const points = bezierCurve.getPoints( 200 );
+	const geometry = new THREE.BufferGeometry().setFromPoints( points );
+
+	const material = new THREE.LineBasicMaterial( { color: 0xff0000 } );
+
+	curveLine = new THREE.Line( geometry, material );
+
+	if(wholeCurvePositions.length > 0) {
+		curveLine.userData.velocity1 = splines[wholeCurvePositions.length-1].userData.velocity2;
+	} else {
+		curveLine.userData.velocity1 = new THREE.Vector3().randomDirection();
+		curveLine.userData.velocity1.multiplyScalar(animationSpeed);
+	}
+	curveLine.userData.velocity2 = new THREE.Vector3().randomDirection();
+	curveLine.userData.velocity2.multiplyScalar(animationSpeed);
+
+
+	splines.push(curveLine);
+	scene.add(curveLine);	
+
+	addControlLines(newCurvePoints);
+
 }
 
 
@@ -228,7 +261,6 @@ function addControlLines( position ) {
 
 	scene.add( secondControlLine );
 	controlLines.push( secondControlLine );
-
 
 }
 
@@ -262,13 +294,16 @@ function addPoint(new_point) {
 
 	splinePointsLength += 3;
 
-	let newPoint;
-	if(new_point !== undefined ) {
-		newPoint = new_point;
-	} else {
-		newPoint = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 600, Math.random() * 800 - 400) ;	
+	let newPoint = new THREE.Vector3();
+	newPoint.randomDirection();
+	newPoint.clampLength(300, 500);
+	newPoint.add(wholeCurvePositions[wholeCurvePositions.length-1][3]);
+	newPoint.clampScalar(-1000, 1000);
+
+	if( newPoint.y < 0 ) {
+		newPoint.setY( Math.random() * 100 );
 	}
-	
+
 	let newCurvePositions = [];
 
 	newCurvePositions.push( wholeCurvePositions[wholeCurvePositions.length-1][3] );
@@ -276,37 +311,18 @@ function addPoint(new_point) {
 	let vec1 = calculateFirstControlPoint( wholeCurvePositions[wholeCurvePositions.length-1][3], wholeCurvePositions[wholeCurvePositions.length-1][2] );
 	newCurvePositions.push( addSplineObject(vec1).position );
 
-	let vec2 = calculateSecondControlPoint(wholeCurvePositions[wholeCurvePositions.length-1][3], wholeCurvePositions[wholeCurvePositions.length-1][2], newPoint)
+	let vec2 = calculateSecondControlPoint( newPoint );
 	newCurvePositions.push( addSplineObject(vec2).position );
 
 	newCurvePositions.push( addSplineObject(newPoint).position );
 
-	wholeCurvePositions.push(newCurvePositions);
-
-
-	addControlLines( newCurvePositions );
-
-
-	let newBezierCurve = new THREE.CubicBezierCurve3(
-		newCurvePositions[0],
-		newCurvePositions[1],
-		newCurvePositions[2],
-		newCurvePositions[3],
-	);
-	const newPoints = newBezierCurve.getPoints( 200 );
-	const newGeometry = new THREE.BufferGeometry().setFromPoints( newPoints );
-
-	const newMaterial = new THREE.LineBasicMaterial( { color: 0xff0000 } );
-
-	let newCurveLine = new THREE.Line( newGeometry, newMaterial );
-
-	splines.push(newCurveLine);
-	scene.add(newCurveLine);
-
-	newPoints.forEach(pathPoint => {
-		path.add(new YUKA.Vector3(pathPoint.x, pathPoint.y, pathPoint.z));
+	newCurvePositions.forEach(point => {
+		point.ceil();
 	});
 
+	addBezierCurve( newCurvePositions );
+
+	wholeCurvePositions.push(newCurvePositions);
 
 	updateSplineOutline();
 
@@ -314,26 +330,22 @@ function addPoint(new_point) {
 
 }
 
-function calculateFirstControlPoint(v1, v2) {
-	let x1 = v1.x - v2.x;
-	let y1 = v1.y - v2.y;
-	let z1 = v1.z - v2.z;
+function calculateFirstControlPoint(p1, c2) {
 
-	return new THREE.Vector3(v1.x + x1, v1.y + y1, v1.z + z1);
+	let c1 = new THREE.Vector3(0, 0, 0);
+	c1.add(p1).multiplyScalar(2).sub(c2);
+
+	return c1;
 }
 
-function calculateSecondControlPoint(v1, v2, w1) {
-	let x1 = v1.x - (v1.x-w1.x)/2;
-	let y1 = v1.y - (v1.y-w1.y)/2;
-	let z1 = v1.z - (v1.z-w1.z)/2;
+function calculateSecondControlPoint( p2 ) {
 
-	let x2 = -v2.x - 2*x1;
-	let y2 = -v2.y - 2*y1;
-	let z2 = -v2.z - 2*z1;
+	let targetVector = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
 
-	let point = new THREE.Vector3(x2, y2, z2);
-	point.clamp(new THREE.Vector3(0, 0, 0), new THREE.Vector3(2000, 2000, 2000));
-	return point;
+	targetVector.clampLength(200, 300);
+	targetVector.add(p2);
+
+	return targetVector;
 }
 
 function removePoint() {
@@ -363,7 +375,6 @@ function removePoint() {
 	scene.remove( firstControlLine );
 	scene.remove( secondControlLine );
 
-
 	updateSplineOutline();
 
 	render();
@@ -373,7 +384,9 @@ function removePoint() {
 function updateSplineOutline() {
 
 	if(wholeCurvePositions.length > 0) {
+
 		for (let i = 0; i < wholeCurvePositions.length; i++) {
+
 			let curvePoints = wholeCurvePositions[i];
 			curveLine = new THREE.CubicBezierCurve3(curvePoints[0], curvePoints[1], curvePoints[2], curvePoints[3]);
 			const points = curveLine.getPoints( 200 );
@@ -386,49 +399,85 @@ function updateSplineOutline() {
 				controlLines[index].geometry.setFromPoints( controlPoints );
 				controlLines[index + 1].geometry.setFromPoints( controlPoints2 );
 			}
-			
-
 		}	
 	}
-	
-
 }
-
-
-
 
 
 function animate() {
 
 	requestAnimationFrame( animate );
 
-	const delta = time.update().getDelta();
-    entityManager.update(delta);
+	wholeCurvePositions[0][0].add(splines[0].userData.velocity1);
+	checkEdge(wholeCurvePositions[0][0], splines[0].userData.velocity1);
 
+	wholeCurvePositions.forEach((curve, index) => {
+		
+		// curve[0].add(splines[index].userData.velocity1);
+		curve[1].add(splines[index].userData.velocity1);
+		curve[2].add(splines[index].userData.velocity2);
+		curve[3].add(splines[index].userData.velocity2);
 
+		checkEdge(curve[3], splines[index].userData.velocity2);
+
+	});
+
+	
 	updateSplineOutline();
 	render();
+
+	
+}
+
+function rotateControlVector(curvePoint, curvePoint2, controlPoint) {
+
+	let curvePointsVector = new THREE.Vector3();
+	curvePointsVector.add(curvePoint2).sub(curvePoint);
+
+	let controlVector = new THREE.Vector3();
+	controlVector.add(controlPoint).sub(curvePoint);
+
+	let axis = new THREE.Vector3();
+	axis.crossVectors(curvePointsVector, controlVector);
+	axis.normalize();
+
+	let angle = ( curvePointsVector.length() / 500 * Math.PI )- controlVector.angleTo(curvePointsVector);
+	
+	controlVector.applyAxisAngle(axis, angle);
+
+	return controlVector;
+
+}
+
+function checkEdge(curvePoint, velocity) {
+	let negativeEdge = -1000 + 20;
+	let positiveEdge = 1000 - 20;
+
+	
+	if(curvePoint.x < negativeEdge || curvePoint.x > positiveEdge) {
+		velocity.x *= -1;
+	}
+	if(curvePoint.y < -200 || curvePoint.y > positiveEdge) {
+		velocity.y *= -1;
+	}
+	if(curvePoint.z < negativeEdge || curvePoint.z > positiveEdge) {
+		velocity.z *= -1;
+	}
 
 }
 
 function load( new_positions ) {
 
 	while ( new_positions.length > positions.length ) {
-
-		addPoint();
-
+		addPoint(new_positions);
 	}
 
 	while ( new_positions.length < positions.length ) {
-
 		removePoint();
-
 	}
 
 	for ( let i = 0; i < positions.length; i ++ ) {
-
 		positions[ i ].copy( new_positions[ i ] );
-
 	}
 
 	updateSplineOutline();
@@ -437,16 +486,11 @@ function load( new_positions ) {
 
 }
 
-
-
 function render() {
 
 	renderer.render( scene, camera );
 
 }
-
-
-
 
 
 function onPointerDown( event ) {
